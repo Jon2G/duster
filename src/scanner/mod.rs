@@ -1,5 +1,6 @@
 //! Scanner infrastructure and common types
 
+pub mod appdata;
 pub mod build_artifacts;
 pub mod cache;
 pub mod custom_paths;
@@ -16,6 +17,26 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// How risky a cleanable item is to delete
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RiskLevel {
+    /// Normal cleanable item (caches, build artifacts, etc.)
+    #[default]
+    Normal,
+    /// Opt-in sensitive locations (e.g. broad AppData) — extra confirmation required
+    Sensitive,
+}
+
+impl RiskLevel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RiskLevel::Normal => "normal",
+            RiskLevel::Sensitive => "sensitive",
+        }
+    }
+}
+
 /// Represents a file that can be cleaned up
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CleanableFile {
@@ -31,6 +52,9 @@ pub struct CleanableFile {
     pub reason: String,
     /// Whether this is a directory (for proper deletion)
     pub is_directory: bool,
+    /// Risk classification (sensitive items require opt-in flags to delete)
+    #[serde(default)]
+    pub risk: RiskLevel,
 }
 
 /// Categories of cleanable files
@@ -66,7 +90,7 @@ impl Category {
         match self {
             Category::Cache => "Cached data from applications and system",
             Category::Trash => "Files in the trash bin",
-            Category::Temp => "Temporary files from /tmp and similar",
+            Category::Temp => "Temporary files from the system temp directory",
             Category::Downloads => "Old files in Downloads folder",
             Category::BuildArtifact => "Build outputs and dependencies (node_modules, target, etc.)",
             Category::LargeFile => "Large files that may not be needed",

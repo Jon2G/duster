@@ -1,6 +1,6 @@
 //! Old files scanner for files not accessed in a long time
 
-use super::{get_last_accessed, was_accessed_within_days, Category, CleanableFile, Scanner};
+use super::{get_last_accessed, was_accessed_within_days, Category, CleanableFile, Scanner, RiskLevel};
 use crate::config::Config;
 use anyhow::Result;
 use chrono::Utc;
@@ -45,6 +45,11 @@ impl OldFilesScanner {
                 | "lib"
                 | "include"
                 | "share"
+                | "AppData"
+                | "Application Data"
+                | "Cookies"
+                | "Local Settings"
+                | "OneDrive"
         )
     }
 
@@ -160,6 +165,7 @@ impl Scanner for OldFilesScanner {
                     last_accessed,
                     reason: format!("Not accessed in {} days: {}", age_days, name),
                     is_directory: false,
+                    risk: RiskLevel::Normal,
                 });
             }
         }

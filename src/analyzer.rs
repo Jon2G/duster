@@ -3,6 +3,7 @@
 use crate::cli::{ScanCategory, ScanOptions};
 use crate::config::Config;
 use crate::scanner::{
+    appdata::AppDataScanner,
     build_artifacts::{BuildArtifactsScanner, GlobalCacheScanner},
     cache::{CacheScanner, KnownCacheScanner},
     custom_paths::CustomPathsScanner,
@@ -12,7 +13,7 @@ use crate::scanner::{
     old_files::OldFilesScanner,
     temp::TempScanner,
     trash::TrashScanner,
-    Category, CleanableFile, ScanResult, Scanner,
+    Category, CleanableFile, RiskLevel, ScanResult, Scanner,
 };
 use crate::ui;
 use anyhow::Result;
@@ -29,6 +30,9 @@ pub fn run_scan(options: &ScanOptions, config: &Config) -> Result<ScanResult> {
     if options.should_scan(ScanCategory::Cache) {
         scanners.push(Box::new(CacheScanner::new()));
         scanners.push(Box::new(KnownCacheScanner::new()));
+        if config.include_sensitive {
+            scanners.push(Box::new(AppDataScanner::new()));
+        }
     }
 
     if options.should_scan(ScanCategory::Trash) {
@@ -91,6 +95,12 @@ pub fn run_scan(options: &ScanOptions, config: &Config) -> Result<ScanResult> {
     }
 
     // Show progress
+    if config.include_sensitive && !options.json {
+        ui::print_warning(
+            "Sensitive scan enabled (--include-sensitive): AppData entries are tagged risky and need --force-sensitive to delete with -y.",
+        );
+    }
+
     let spinner = ui::create_spinner("Scanning for cleanable files...");
 
     // Run scanners in parallel
@@ -172,6 +182,19 @@ pub fn print_report(result: &ScanResult) {
         ui::format_size(result.total_size()).yellow().bold()
     );
 
+    let sensitive_count = result
+        .files
+        .iter()
+        .filter(|f| f.risk == RiskLevel::Sensitive)
+        .count();
+    if sensitive_count > 0 {
+        println!();
+        ui::print_warning(&format!(
+            "{} sensitive item(s) found. Use care before cleaning; -y will skip them unless --force-sensitive is set.",
+            sensitive_count
+        ));
+    }
+
     // Print any errors
     if !result.errors.is_empty() {
         println!();
@@ -249,8 +272,10 @@ pub fn print_json_report(result: &ScanResult) -> Result<()> {
                 "category": f.category.display_name(),
                 "reason": f.reason,
                 "is_directory": f.is_directory,
+                "risk": f.risk.as_str(),
             })
         }).collect::<Vec<_>>(),
+        "sensitive": result.files.iter().any(|f| f.risk == RiskLevel::Sensitive),
         "errors": result.errors,
     });
 

@@ -1,6 +1,6 @@
 //! Scanner for user-defined cleanable paths from config
 
-use super::{calculate_dir_size, get_last_accessed, Category, CleanableFile, Scanner};
+use super::{calculate_dir_size, get_last_accessed, Category, CleanableFile, Scanner, RiskLevel};
 use crate::config::Config;
 use anyhow::Result;
 use chrono::Utc;
@@ -104,6 +104,7 @@ impl Scanner for CustomPathsScanner {
                 last_accessed,
                 reason,
                 is_directory,
+                risk: RiskLevel::Normal,
             });
         }
 

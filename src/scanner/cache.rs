@@ -1,7 +1,8 @@
 //! System and application cache scanner
 
-use super::{calculate_dir_size, get_last_accessed, Category, CleanableFile, Scanner};
+use super::{calculate_dir_size, get_last_accessed, Category, CleanableFile, RiskLevel, Scanner};
 use crate::config::Config;
+use crate::platform;
 use anyhow::Result;
 use chrono::Utc;
 use std::path::PathBuf;
@@ -15,24 +16,7 @@ impl CacheScanner {
 
     /// Get cache directories to scan based on the platform
     fn get_cache_dirs(&self, config: &Config) -> Vec<PathBuf> {
-        let mut dirs = Vec::new();
-
-        if let Some(home) = dirs::home_dir() {
-            // macOS
-            #[cfg(target_os = "macos")]
-            {
-                let library_caches = home.join("Library").join("Caches");
-                if library_caches.exists() {
-                    dirs.push(library_caches);
-                }
-            }
-
-            // Linux / fallback
-            let cache_dir = home.join(".cache");
-            if cache_dir.exists() {
-                dirs.push(cache_dir);
-            }
-        }
+        let mut dirs = platform::cache_roots();
 
         // Add any custom cache paths from config
         for path in &config.cache_paths {
@@ -102,6 +86,7 @@ impl Scanner for CacheScanner {
                     last_accessed,
                     reason: format!("Cache directory: {}", name),
                     is_directory: path.is_dir(),
+                    risk: RiskLevel::Normal,
                 });
             }
         }
@@ -121,11 +106,9 @@ impl KnownCacheScanner {
         Self
     }
 
-    /// List of known cache directories relative to home that are safe to clean
-    fn known_caches() -> Vec<(&'static str, &'static str)> {
+    /// Cross-platform package-manager / toolchain caches relative to home
+    fn home_relative_caches() -> Vec<(&'static str, &'static str)> {
         vec![
-            // Package managers
-            ("Library/Caches/Homebrew", "Homebrew downloads cache"),
             (".npm/_cacache", "npm cache"),
             (".yarn/cache", "Yarn cache"),
             (".pnpm-store", "pnpm cache"),
@@ -135,36 +118,77 @@ impl KnownCacheScanner {
             (".nuget/packages", "NuGet cache"),
             (".cache/pip", "pip cache"),
             (".cache/go-build", "Go build cache"),
-            // IDEs and editors
+            (".vscode-server", "VS Code Server"),
+        ]
+    }
+
+    #[cfg(target_os = "macos")]
+    fn macos_caches() -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("Library/Caches/Homebrew", "Homebrew downloads cache"),
             ("Library/Caches/com.apple.dt.Xcode", "Xcode cache"),
             ("Library/Caches/JetBrains", "JetBrains IDEs cache"),
             ("Library/Caches/com.microsoft.VSCode", "VS Code cache"),
-            (".vscode-server", "VS Code Server"),
-            // Browsers
-            (
-                "Library/Caches/com.google.Chrome",
-                "Chrome browser cache",
-            ),
-            (
-                "Library/Caches/com.brave.Browser",
-                "Brave browser cache",
-            ),
-            (
-                "Library/Caches/org.mozilla.firefox",
-                "Firefox browser cache",
-            ),
+            ("Library/Caches/com.google.Chrome", "Chrome browser cache"),
+            ("Library/Caches/com.brave.Browser", "Brave browser cache"),
+            ("Library/Caches/org.mozilla.firefox", "Firefox browser cache"),
             ("Library/Caches/com.apple.Safari", "Safari browser cache"),
-            // Apps
-            (
-                "Library/Caches/com.spotify.client",
-                "Spotify cache",
-            ),
-            (
-                "Library/Caches/com.docker.docker",
-                "Docker cache",
-            ),
+            ("Library/Caches/com.spotify.client", "Spotify cache"),
+            ("Library/Caches/com.docker.docker", "Docker cache"),
             ("Library/Caches/Slack", "Slack cache"),
         ]
+    }
+
+    /// Absolute / env-based Windows known caches
+    #[cfg(target_os = "windows")]
+    fn windows_absolute_caches() -> Vec<(PathBuf, &'static str)> {
+        let mut list = Vec::new();
+
+        if let Some(local) = dirs::cache_dir() {
+            let candidates = [
+                (local.join("npm-cache"), "npm cache"),
+                (local.join("pip").join("Cache"), "pip cache"),
+                (local.join("go-build"), "Go build cache"),
+                (
+                    local
+                        .join("Google")
+                        .join("Chrome")
+                        .join("User Data")
+                        .join("Default")
+                        .join("Cache"),
+                    "Chrome browser cache",
+                ),
+                (
+                    local
+                        .join("Microsoft")
+                        .join("Edge")
+                        .join("User Data")
+                        .join("Default")
+                        .join("Cache"),
+                    "Edge browser cache",
+                ),
+                (local.join("JetBrains"), "JetBrains IDEs cache"),
+                (local.join("Docker"), "Docker Desktop data"),
+            ];
+            list.extend(candidates);
+        }
+
+        if let Some(roaming) = dirs::config_dir() {
+            let candidates = [
+                (roaming.join("npm-cache"), "npm cache (Roaming)"),
+                (roaming.join("Code").join("Cache"), "VS Code cache"),
+                (roaming.join("Code").join("CachedData"), "VS Code cached data"),
+                (
+                    roaming.join("Code").join("CachedExtensions"),
+                    "VS Code cached extensions",
+                ),
+                (roaming.join("Cursor").join("Cache"), "Cursor cache"),
+                (roaming.join("Cursor").join("CachedData"), "Cursor cached data"),
+            ];
+            list.extend(candidates);
+        }
+
+        list
     }
 }
 
@@ -187,9 +211,30 @@ impl Scanner for KnownCacheScanner {
             None => return Ok(results),
         };
 
-        for (rel_path, description) in Self::known_caches() {
-            let path = home.join(rel_path);
+        let mut entries: Vec<(PathBuf, String)> = Self::home_relative_caches()
+            .into_iter()
+            .map(|(rel, desc)| (home.join(rel), desc.to_string()))
+            .collect();
 
+        #[cfg(target_os = "macos")]
+        {
+            entries.extend(
+                Self::macos_caches()
+                    .into_iter()
+                    .map(|(rel, desc)| (home.join(rel), desc.to_string())),
+            );
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            entries.extend(
+                Self::windows_absolute_caches()
+                    .into_iter()
+                    .map(|(path, desc)| (path, desc.to_string())),
+            );
+        }
+
+        for (path, description) in entries {
             if !path.exists() {
                 continue;
             }
@@ -208,8 +253,9 @@ impl Scanner for KnownCacheScanner {
                     size,
                     category: Category::Cache,
                     last_accessed,
-                    reason: description.to_string(),
+                    reason: description,
                     is_directory: true,
+                    risk: RiskLevel::Normal,
                 });
             }
         }

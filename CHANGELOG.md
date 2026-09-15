@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Windows support: temp (`%TEMP%`), Recycle Bin discovery, known Windows caches, .NET `obj`/`bin`/`.vs` build artifacts.
+- `--include-sensitive` / `--include-appdata` for opt-in broad AppData scanning with `risk: sensitive` tagging.
+- `--force-sensitive` so `clean -y` cannot delete sensitive items by accident.
+- Windows release artifact (`duster-windows-x86_64.zip`), `install.ps1`, and CI on Windows.
+- `platform` helpers for path normalization (fixes `duster space` with `\\?\` paths on Windows).
+
+### Changed
+
+- Install scripts and docs point at [Jon2G/duster](https://github.com/Jon2G/duster).
+- Default Windows cache scan does not treat all of LocalAppData as cleanable.
+
 ## [0.1.2] - 2026-02-02
 
 ### Added

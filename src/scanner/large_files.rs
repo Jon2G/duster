@@ -1,6 +1,6 @@
 //! Large files scanner
 
-use super::{get_last_accessed, Category, CleanableFile, Scanner};
+use super::{get_last_accessed, Category, CleanableFile, Scanner, RiskLevel};
 use crate::config::Config;
 use anyhow::Result;
 use chrono::Utc;
@@ -34,6 +34,10 @@ impl LargeFilesScanner {
                 | ".Trash"
                 | "Volumes"
                 | "System"
+                | "AppData"
+                | "Application Data"
+                | "Cookies"
+                | "Local Settings"
         )
     }
 
@@ -161,6 +165,7 @@ impl Scanner for LargeFilesScanner {
                 last_accessed,
                 reason: format!("{}: {}", file_type, name),
                 is_directory: false,
+                    risk: RiskLevel::Normal,
             });
         }
 

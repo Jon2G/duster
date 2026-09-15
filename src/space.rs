@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use sysinfo::Disks;
 
 use crate::cli::SpaceOptions;
+use crate::platform;
 use crate::ui;
 
 /// Run the space command: resolve path, find disk, print total/free.
@@ -34,17 +35,21 @@ fn resolve_target_path(options: &SpaceOptions) -> Result<PathBuf> {
     let canonical = path
         .canonicalize()
         .with_context(|| format!("Path does not exist: {}", path.display()))?;
-    Ok(canonical)
+    Ok(platform::normalize_path(&canonical))
 }
 
 fn find_disk_for_path(target: &Path) -> Result<(u64, u64, PathBuf)> {
     let disks = Disks::new_with_refreshed_list();
+    let target = platform::normalize_path(target);
 
     let mut matching: Vec<_> = disks
         .list()
         .iter()
-        .filter(|disk| target.starts_with(disk.mount_point()))
-        .map(|disk| (disk.mount_point().to_path_buf(), disk))
+        .filter(|disk| {
+            let mount = platform::normalize_path(disk.mount_point());
+            platform::path_starts_with(&target, &mount)
+        })
+        .map(|disk| (platform::normalize_path(disk.mount_point()), disk))
         .collect();
 
     // Longest mount point first (handles nested mounts like / vs /home)

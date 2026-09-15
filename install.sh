@@ -1,9 +1,9 @@
 #!/bin/sh
 set -e
 
-REPO="ericzakariasson/duster"
-
 # Detect OS and architecture
+REPO="Jon2G/duster"
+
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 

@@ -1,11 +1,10 @@
 //! Temporary files scanner
 
-use super::{get_last_accessed, was_modified_within_days, Category, CleanableFile, Scanner};
+use super::{get_last_accessed, was_modified_within_days, Category, CleanableFile, RiskLevel, Scanner};
 use crate::config::Config;
+use crate::platform;
 use anyhow::Result;
 use chrono::Utc;
-use std::env;
-use std::path::PathBuf;
 use walkdir::WalkDir;
 
 pub struct TempScanner;
@@ -13,33 +12,6 @@ pub struct TempScanner;
 impl TempScanner {
     pub fn new() -> Self {
         Self
-    }
-
-    /// Get temp directories to scan
-    fn get_temp_dirs(&self) -> Vec<PathBuf> {
-        let mut dirs = Vec::new();
-
-        // Standard temp directories
-        dirs.push(PathBuf::from("/tmp"));
-        dirs.push(PathBuf::from("/var/tmp"));
-
-        // TMPDIR environment variable (often set on macOS)
-        if let Ok(tmpdir) = env::var("TMPDIR") {
-            let p = PathBuf::from(&tmpdir);
-            if p.exists() && !dirs.contains(&p) {
-                dirs.push(p);
-            }
-        }
-
-        // User-specific temp on macOS
-        if let Some(home) = dirs::home_dir() {
-            let user_tmp = home.join("Library").join("Caches").join("TemporaryItems");
-            if user_tmp.exists() {
-                dirs.push(user_tmp);
-            }
-        }
-
-        dirs
     }
 }
 
@@ -56,7 +28,7 @@ impl Scanner for TempScanner {
 
     fn scan(&self, config: &Config) -> Result<Vec<CleanableFile>> {
         let mut results = Vec::new();
-        let temp_dirs = self.get_temp_dirs();
+        let temp_dirs = platform::temp_dirs();
 
         // Only scan files older than 1 day to avoid active temp files
         let min_age_days = 1;
@@ -95,7 +67,7 @@ impl Scanner for TempScanner {
                     Err(_) => continue,
                 };
 
-                // Skip if we don't have read permissions
+                // Skip if we don't have write permission (readonly)
                 if metadata.permissions().readonly() {
                     continue;
                 }
@@ -127,6 +99,7 @@ impl Scanner for TempScanner {
                     last_accessed,
                     reason: format!("Temp file: {}", name),
                     is_directory: is_dir,
+                    risk: RiskLevel::Normal,
                 });
             }
         }

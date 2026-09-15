@@ -92,6 +92,10 @@ pub struct ScanOptions {
     #[arg(long, value_name = "PATTERN")]
     pub exclude: Vec<String>,
 
+    /// Include sensitive locations such as broad AppData (Windows). Results are tagged risky.
+    #[arg(long, visible_alias = "include-appdata")]
+    pub include_sensitive: bool,
+
     /// Output results as JSON
     #[arg(long)]
     pub json: bool,
@@ -105,6 +109,10 @@ pub struct CleanOptions {
     /// Skip confirmation prompts
     #[arg(short, long)]
     pub yes: bool,
+
+    /// Allow deleting sensitive (e.g. AppData) items. Required with -y; interactive clean still asks once more.
+    #[arg(long)]
+    pub force_sensitive: bool,
 }
 
 #[derive(Parser, Debug)]

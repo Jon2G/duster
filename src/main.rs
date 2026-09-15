@@ -8,6 +8,7 @@ mod analyzer;
 mod cleaner;
 mod cli;
 mod config;
+mod platform;
 mod scan_cache;
 mod scanner;
 mod space;
@@ -68,7 +69,7 @@ fn main() -> Result<()> {
                 return Ok(());
             }
 
-            let files_to_delete = if options.yes {
+            let mut files_to_delete = if options.yes {
                 result.files.clone()
             } else {
                 let selected_categories = cleaner::select_categories(&result.files);
@@ -84,8 +85,39 @@ fn main() -> Result<()> {
                     .collect()
             };
 
+            let force_sensitive = options.force_sensitive
+                && (options.scan.include_sensitive || config.include_sensitive);
+
+            let (filtered, skipped_sensitive) =
+                cleaner::filter_for_deletion(&files_to_delete, force_sensitive);
+            files_to_delete = filtered;
+
+            if files_to_delete.is_empty() {
+                if skipped_sensitive > 0 {
+                    ui::print_warning(&format!(
+                        "All {} remaining item(s) are sensitive. Re-run with --include-sensitive --force-sensitive to delete them.",
+                        skipped_sensitive
+                    ));
+                } else {
+                    ui::print_info("No files to delete.");
+                }
+                return Ok(());
+            }
+
             // Preview what will be deleted
             cleaner::preview_deletion(&files_to_delete);
+
+            // Extra confirmation for sensitive items in interactive mode
+            let has_sensitive = files_to_delete
+                .iter()
+                .any(|f| f.risk == scanner::RiskLevel::Sensitive);
+            if has_sensitive && !options.yes {
+                println!();
+                if !ui::confirm("Delete sensitive AppData / risky items? This may break apps.") {
+                    ui::print_info("Cleanup cancelled.");
+                    return Ok(());
+                }
+            }
 
             // Get confirmation
             let should_delete = if options.yes {
@@ -101,7 +133,8 @@ fn main() -> Result<()> {
             }
 
             // Delete files
-            let cleanup_result = cleaner::delete_files(&files_to_delete, None)?;
+            let mut cleanup_result = cleaner::delete_files(&files_to_delete, None)?;
+            cleanup_result.skipped_sensitive = skipped_sensitive;
             cleaner::print_cleanup_result(&cleanup_result);
         }
 
@@ -171,6 +204,12 @@ fn show_config(config: &Config) -> Result<()> {
         "{:<25} {}",
         "Download age (days):".bold(),
         config.download_age_days
+    );
+
+    println!(
+        "{:<25} {}",
+        "Include sensitive:".bold(),
+        config.include_sensitive
     );
 
     if !config.excluded_paths.is_empty() {

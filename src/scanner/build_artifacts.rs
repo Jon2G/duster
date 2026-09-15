@@ -1,10 +1,10 @@
 //! Build artifacts scanner with smart "recently used" detection
 
-use super::{calculate_dir_size, get_last_modified, was_modified_within_days, Category, CleanableFile, Scanner};
+use super::{calculate_dir_size, get_last_modified, was_modified_within_days, Category, CleanableFile, Scanner, RiskLevel};
 use crate::config::Config;
 use anyhow::Result;
 use chrono::Utc;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 pub struct BuildArtifactsScanner;
@@ -102,7 +102,45 @@ const ARTIFACT_PATTERNS: &[ArtifactPattern] = &[
         project_file: "",
         description: "Python virtual environment",
     },
+    ArtifactPattern {
+        dir_name: "obj",
+        project_file: "",
+        description: ".NET obj build output",
+    },
+    ArtifactPattern {
+        dir_name: "bin",
+        project_file: "",
+        description: ".NET bin build output",
+    },
+    ArtifactPattern {
+        dir_name: ".vs",
+        project_file: "",
+        description: "Visual Studio cache",
+    },
+    ArtifactPattern {
+        dir_name: "packages",
+        project_file: "packages.config",
+        description: "NuGet packages folder",
+    },
 ];
+
+fn has_dotnet_project_marker(project_root: &Path) -> bool {
+    if project_root.join("packages.config").exists() {
+        return true;
+    }
+    if let Ok(entries) = std::fs::read_dir(project_root) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(ext) = path.extension() {
+                let ext = ext.to_string_lossy().to_lowercase();
+                if matches!(ext.as_str(), "csproj" | "fsproj" | "vbproj" | "sln") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
 
 /// Check if a project was recently used by examining project files
 fn is_project_recently_used(project_root: &Path, days: u32) -> bool {
@@ -130,6 +168,22 @@ fn is_project_recently_used(project_root: &Path, days: u32) -> bool {
         let path = project_root.join(file);
         if path.exists() && was_modified_within_days(&path, days) {
             return true;
+        }
+    }
+
+    if has_dotnet_project_marker(project_root) {
+        if let Ok(entries) = std::fs::read_dir(project_root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(ext) = path.extension() {
+                    let ext = ext.to_string_lossy().to_lowercase();
+                    if matches!(ext.as_str(), "csproj" | "fsproj" | "vbproj" | "sln" | "cs" | "fs" | "vb")
+                        && was_modified_within_days(&path, days)
+                    {
+                        return true;
+                    }
+                }
+            }
         }
     }
 
@@ -173,7 +227,13 @@ impl Scanner for BuildArtifactsScanner {
                     // Allow specific hidden dirs we want to scan
                     return matches!(
                         name.as_ref(),
-                        ".next" | ".nuxt" | ".gradle" | ".tox" | ".venv" | ".pytest_cache"
+                        ".next"
+                            | ".nuxt"
+                            | ".gradle"
+                            | ".tox"
+                            | ".venv"
+                            | ".pytest_cache"
+                            | ".vs"
                     );
                 }
                 // Skip node_modules subdirectories (we handle the whole dir)
@@ -219,6 +279,11 @@ impl Scanner for BuildArtifactsScanner {
                     if !project_file.exists() {
                         continue;
                     }
+                } else if matches!(pattern.dir_name, "obj" | "bin" | ".vs") {
+                    // .NET artifacts require a project/solution marker in the parent
+                    if !has_dotnet_project_marker(parent) {
+                        continue;
+                    }
                 }
 
                 // Check if project was recently used
@@ -246,6 +311,7 @@ impl Scanner for BuildArtifactsScanner {
                     last_accessed: last_modified,
                     reason: format!("{} in project '{}'", pattern.description, project_name),
                     is_directory: true,
+                    risk: RiskLevel::Normal,
                 });
 
                 break; // Don't match multiple patterns for the same directory
@@ -288,7 +354,7 @@ impl Scanner for GlobalCacheScanner {
         };
 
         // Global caches that can be cleaned
-        let global_caches = [
+        let mut global_caches: Vec<(PathBuf, &str)> = [
             (".cargo/registry/cache", "Cargo registry cache"),
             (".cargo/git/checkouts", "Cargo git checkouts"),
             (".rustup/tmp", "Rustup temp files"),
@@ -299,21 +365,31 @@ impl Scanner for GlobalCacheScanner {
             (".m2/repository", "Maven repository"),
             (".cache/pip", "pip cache"),
             (".cache/go-build", "Go build cache"),
-        ];
+            (".nuget/packages", "NuGet packages"),
+        ]
+        .into_iter()
+        .map(|(rel, desc)| (home.join(rel), desc))
+        .collect();
 
-        for (rel_path, description) in &global_caches {
-            let path = home.join(rel_path);
-            
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(local) = dirs::cache_dir() {
+                global_caches.push((local.join("npm-cache"), "npm cache"));
+                global_caches.push((local.join("pip").join("Cache"), "pip cache"));
+            }
+        }
+
+        for (path, description) in &global_caches {
             if !path.exists() {
                 continue;
             }
 
-            if config.is_excluded(&path) {
+            if config.is_excluded(path) {
                 continue;
             }
 
-            let size = calculate_dir_size(&path);
-            let last_modified = get_last_modified(&path).unwrap_or_else(Utc::now);
+            let size = calculate_dir_size(path);
+            let last_modified = get_last_modified(path).unwrap_or_else(Utc::now);
 
             // Only include if it's significant (>10MB)
             if size < 10 * 1024 * 1024 {
@@ -321,12 +397,13 @@ impl Scanner for GlobalCacheScanner {
             }
 
             results.push(CleanableFile {
-                path,
+                path: path.clone(),
                 size,
                 category: Category::BuildArtifact,
                 last_accessed: last_modified,
                 reason: description.to_string(),
                 is_directory: true,
+                risk: RiskLevel::Normal,
             });
         }
 

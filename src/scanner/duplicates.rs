@@ -1,6 +1,6 @@
 //! Duplicate files scanner using blake3 hashing
 
-use super::{get_last_accessed, Category, CleanableFile, Scanner};
+use super::{get_last_accessed, Category, CleanableFile, Scanner, RiskLevel};
 use crate::config::Config;
 use anyhow::Result;
 use chrono::Utc;
@@ -36,6 +36,10 @@ impl DuplicatesScanner {
                 | ".Trash"
                 | ".cache"
                 | "Caches"
+                | "AppData"
+                | "Application Data"
+                | "Cookies"
+                | "Local Settings"
         )
     }
 
@@ -188,6 +192,7 @@ impl Scanner for DuplicatesScanner {
                     last_accessed,
                     reason: format!("Duplicate of: {}", original_name),
                     is_directory: false,
+                    risk: RiskLevel::Normal,
                 });
             }
         }

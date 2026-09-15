@@ -459,7 +459,7 @@ fn resolve_target_path(scan_path: Option<&Path>) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scanner::{Category, ScanResult};
+    use crate::scanner::{Category, CleanableFile, RiskLevel, ScanResult};
     use chrono::Utc;
 
     fn cleanable(path: &str, size: u64, category: Category) -> CleanableFile {
@@ -470,6 +470,7 @@ mod tests {
             last_accessed: Utc::now(),
             reason: "test".to_string(),
             is_directory: false,
+                    risk: RiskLevel::Normal,
         }
     }
 

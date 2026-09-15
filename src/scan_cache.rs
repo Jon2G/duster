@@ -27,7 +27,7 @@ fn options_fingerprint(options: &ScanOptions) -> String {
     let mut exclude = options.exclude.clone();
     exclude.sort();
     format!(
-        "path={} all={} cache={} trash={} temp={} downloads={} build={} large={} duplicates={} old={} min_age={:?} min_size={:?} project_age={:?} exclude={:?}",
+        "path={} all={} cache={} trash={} temp={} downloads={} build={} large={} duplicates={} old={} include_sensitive={} min_age={:?} min_size={:?} project_age={:?} exclude={:?}",
         path,
         options.all,
         options.cache,
@@ -38,6 +38,7 @@ fn options_fingerprint(options: &ScanOptions) -> String {
         options.large,
         options.duplicates,
         options.old,
+        options.include_sensitive,
         options.min_age,
         options.min_size,
         options.project_age,

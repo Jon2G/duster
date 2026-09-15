@@ -39,6 +39,10 @@ pub struct Config {
     #[serde(default)]
     pub custom_paths: Vec<CustomCleanPath>,
 
+    /// Opt into sensitive locations such as broad AppData (default: false)
+    #[serde(default)]
+    pub include_sensitive: bool,
+
     /// Base path for scanning (default: home directory)
     #[serde(skip)]
     pub base_path: Option<PathBuf>,
@@ -139,6 +143,7 @@ impl Default for Config {
             excluded_paths: Vec::new(),
             cache_paths: Vec::new(),
             custom_paths: Vec::new(),
+            include_sensitive: false,
             base_path: None,
         }
     }
@@ -212,6 +217,10 @@ impl Config {
             if !self.excluded_paths.contains(exclude) {
                 self.excluded_paths.push(exclude.clone());
             }
+        }
+
+        if options.include_sensitive {
+            self.include_sensitive = true;
         }
     }
 

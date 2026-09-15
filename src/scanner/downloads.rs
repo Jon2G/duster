@@ -1,6 +1,6 @@
 //! Old downloads scanner
 
-use super::{get_last_accessed, was_accessed_within_days, Category, CleanableFile, Scanner};
+use super::{get_last_accessed, was_accessed_within_days, Category, CleanableFile, Scanner, RiskLevel};
 use crate::config::Config;
 use anyhow::Result;
 use chrono::Utc;
@@ -101,6 +101,7 @@ impl Scanner for DownloadsScanner {
                 last_accessed,
                 reason: format!("Download not accessed in {} days: {}", age_days, name),
                 is_directory: is_dir,
+                    risk: RiskLevel::Normal,
             });
         }
 
